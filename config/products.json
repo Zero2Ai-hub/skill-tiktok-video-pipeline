@@ -1,5 +1,5 @@
 {
-  "rain_cloud": {"name": "Rain Cloud Humidifier", "accent": [140, 180, 255], "cta_price": "129 AED"},
-  "hydro_bottle": {"name": "Hydrogen Water Bottle", "accent": [0, 200, 255], "cta_price": "149 AED"},
-  "mini_cam": {"name": "Mini Clip Camera", "accent": [255, 100, 60], "cta_price": "89 AED"}
+  "_comment": "Add your product definitions here. Keys must match product IDs used in pipeline calls.",
+  "example_product": {"name": "Your Product Name", "accent": [0, 200, 255], "cta_price": "99 USD"},
+  "another_product": {"name": "Another Product", "accent": [255, 100, 60], "cta_price": "49 USD"}
 }
