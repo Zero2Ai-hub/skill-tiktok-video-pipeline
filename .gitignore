@@ -1,0 +1,3 @@
+config/internal.md
+*.pyc
+__pycache__/
