@@ -1,112 +1,152 @@
 ---
 name: skill-tiktok-video-pipeline
-version: 1.0.0
-description: End-to-end TikTok ad video pipeline. Product image → base video (Runway/Veo) → slowmo stretch → animated caption overlay → final MP4. One command, full automation.
+version: 2.0.0
+# Updated: pipeline.py wired to overlay v3 engine with --audio and --slowmo support
+description: End-to-end TikTok ad video pipeline. Product script → Veo base video → animated caption overlay → audio mix → final MP4. One command, full automation.
 metadata:
   openclaw:
-    requires: { bins: ["uv"] }
+    requires: { bins: ["uv", "ffmpeg", "node"] }
 ---
 
-# skill-tiktok-video-pipeline
+# skill-tiktok-video-pipeline v2
 
-Full pipeline orchestrator for TikTok product ads. Takes a product image and outputs a publish-ready short-form video with animated pill captions.
+Full end-to-end pipeline for TikTok product ads. Takes a `product_id` + `script_text` and outputs a publish-ready vertical short-form video with captions, optional logo watermark, and background music.
 
-## Dependencies
+## Architecture
 
-Both skills must be installed at the same `skills/` level:
-- `skill-runway-video-gen` — video generation
-- `skill-tiktok-ads-video` — caption overlay
+```
+script_text + product_id
+       │
+       ▼
+Step 1: Veo 3 base video generation (9:16, ~8s)
+       │
+       ▼
+Step 2: Caption overlay + logo watermark
+        └── tiktok_overlay_engine_v3.py (ffmpeg drawtext)
+       │
+       ▼
+Step 3: Background audio mix (20% volume, ffmpeg amix)
+       │
+       ▼
+output/tiktok/<product_id>_<lang>_final.mp4
+```
+
+## Requirements
+
+- `GEMINI_API_KEY` env var (for Veo generation)
+- `ffmpeg` on PATH
+- `uv` on PATH (for Python scripts)
+- `veo3-video-gen` skill installed at `skills/veo3-video-gen/`
 
 ## Usage
 
 ```bash
-uv run scripts/pipeline.py \
-  --product rain_cloud \
-  --image product.jpg \
-  --output final.mp4
+node scripts/generate.js \
+  --product-id rain_cloud \
+  --script-text "Stop dry air!|Ultrasonic mist|Whisper-quiet|Get yours today" \
+  --lang EN
 ```
 
-### Full options
+### With logo and custom audio
+
+```bash
+node scripts/generate.js \
+  --product-id hydro_bottle \
+  --script-text "Hydrogen water|Boosts energy|Pure & clean|Shop now" \
+  --lang EN \
+  --logo /path/to/brand_logo.png \
+  --audio /path/to/bgm.mp3
+```
+
+### Arabic (AR) captions
+
+```bash
+node scripts/generate.js \
+  --product-id mini_cam \
+  --script-text "صوّر كل لحظة|دقة عالية|خفيف وصغير|اطلب الآن" \
+  --lang AR
+```
+
+### Dry-run (no API calls, generates dummy video for testing overlay)
+
+```bash
+node scripts/generate.js \
+  --product-id test \
+  --script-text "Line 1|Line 2|Line 3" \
+  --dry-run
+```
+
+## Inputs
+
+| Argument | Required | Default | Description |
+|---|---|---|---|
+| `--product-id` | ✅ | — | Product identifier (used in output filename) |
+| `--script-text` | ✅ | — | Caption lines separated by `\|` |
+| `--lang` | ❌ | `EN` | Language: `EN` or `AR` |
+| `--logo` | ❌ | none | Path to logo PNG for watermark (top-right) |
+| `--audio` | ❌ | `assets/bgm_default.mp3` | Background music path |
+| `--veo-model` | ❌ | `veo-3.1-generate-preview` | Veo model to use |
+| `--prompt` | ❌ | auto | Custom Veo generation prompt |
+| `--segments` | ❌ | `1` | Number of Veo segments to generate & stitch |
+| `--dry-run` | ❌ | false | Skip Veo API call; use dummy black video |
+
+## Outputs
+
+| File | Description |
+|---|---|
+| `output/tiktok/<product_id>_<lang>_final.mp4` | Final publish-ready TikTok video |
+
+## Scripts
+
+| Script | Description |
+|---|---|
+| `scripts/generate.js` | Main Node.js orchestrator |
+| `scripts/tiktok_overlay_engine_v3.py` | Python/ffmpeg caption overlay engine |
+
+## Caption Format
+
+Captions are split by `|` and timed evenly across the video duration.
+
+**Example:** `"Hook line!|Feature 1|Feature 2|CTA here"` → 4 pills, each shown for ~2s on an 8s video.
+
+Pill style: dark semi-transparent box, white text, centered at 75% height.
+
+## Default Audio
+
+Place a royalty-free BGM file at `assets/bgm_default.mp3` in this skill folder to auto-mix audio in all runs. If no audio is found, the video is output without BGM.
+
+## Pipeline Steps Detail
+
+```
+Step 1  Veo 3 generates a 9:16 base MP4           ~60–120s
+Step 2  Python overlays timed caption pills         ~5s
+Step 3  ffmpeg mixes BGM at 20% volume              ~5s
+─────────────────────────────────────────────────────────
+Output  Final branded MP4 ready to post
+```
+
+## pipeline.py (v2.0.0 — Python orchestrator)
+
+Direct Python pipeline wired to overlay engine via subprocess.
 
 ```bash
 uv run scripts/pipeline.py \
   --product rain_cloud \
   --image product.jpg \
   --output final.mp4 \
-  --style subtitle_talk \
-  --engine auto \
-  --extend-to 12 \
-  --prompt "water mist floating, cinematic, slow motion"
+  --audio /path/to/music.mp3 \
+  --slowmo
 ```
 
-## Args
+### New flags (v2.0.0)
 
-| Arg | Default | Description |
+| Flag | Default | Description |
 |---|---|---|
-| `--product` | required | `rain_cloud` \| `hydro_bottle` \| `mini_cam` |
-| `--image` | required | Source product image path |
-| `--output` | required | Final MP4 output path |
-| `--style` | `subtitle_talk` | `subtitle_talk` \| `phrase_slam` \| `random` |
-| `--engine` | `auto` | `runway` \| `veo` \| `auto` |
-| `--extend-to` | `12` | Target video duration in seconds |
-| `--prompt` | auto | Motion description for video generation |
+| `--audio` | `$DEFAULT_AUDIO` env or bundled Hyperfun.mp3 | Audio file passed to overlay step |
+| `--slowmo` | false | Apply 0.83x speed → fills ~12s. Overrides `--extend-to` auto-stretch |
 
-## Products
+### Environment Variables
 
-| Key | Product |
-|---|---|
-| `rain_cloud` | Rain Cloud Humidifier |
-| `hydro_bottle` | Hydrogen Water Bottle |
-| `mini_cam` | Mini Clip Camera |
-
-## Engine Decision Tree
-
-```
---engine auto
-├── Try Veo first (skill-veo3-video-gen)
-│   ├── Success → use Veo output
-│   └── 429 / failure → fallback to Runway
-└── --engine runway → always use Runway Gen4 Turbo
-```
-
-Veo produces higher quality but has per-minute rate limits. Runway is the reliable fallback.
-
-## Pipeline steps
-
-```
-Step 1  Generate base video (Runway or Veo)         ~60–120s
-Step 2  Stretch to --extend-to seconds at 0.83x     ~10s
-Step 3  Apply caption overlay (pill-style)           ~15s
-──────────────────────────────────────────────────────────
-Output  Final branded MP4 ready to post
-```
-
-## Example commands per product
-
-### Rain Cloud Humidifier
-```bash
-uv run scripts/pipeline.py \
-  --product rain_cloud \
-  --image rain_cloud.jpg \
-  --output rain_cloud_tiktok.mp4 \
-  --style subtitle_talk \
-  --engine runway
-```
-
-### Hydrogen Water Bottle
-```bash
-uv run scripts/pipeline.py \
-  --product hydro_bottle \
-  --image hydro_bottle.jpg \
-  --output hydro_bottle_tiktok.mp4 \
-  --style phrase_slam
-```
-
-### Mini Clip Camera
-```bash
-uv run scripts/pipeline.py \
-  --product mini_cam \
-  --image mini_cam.jpg \
-  --output mini_cam_tiktok.mp4 \
-  --style random
-```
+| Var | Default | Description |
+|---|---|---|
+| `DEFAULT_AUDIO` | workspace root `audio_Hyperfun.mp3` | Default audio if `--audio` not set |
